@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game of Life</title>
+    <style>
+        body {
+            background-color: #f1f3f5;
+            font-family: 'Calibri', sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 32pt;
+            color: #222;
+        }
+
+        #grid-container {
+            padding: 10px;
+            width: fit-content;
+            margin: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            margin: 20px auto;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        td {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #ddd;
+            transition: background-color 0.3s ease;
+        }
+
+        .alive {
+            background-color: #ADDEAD;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .dead {
+            background-color: #f8f9fa;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        form {
+            margin: 20px auto;
+            text-align: center;
+        }
+
+        input {
+            padding: 10px;
+            margin-right: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 12pt;
+        }
+
+        #pattern-select {
+            font-size: 12pt;
+            padding: 10px;
+            width: 240px;
+            height: 40px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+    </style>
+</head>
+<body>
+   <h1>Game of Life</h1>
+   <form id="resize-form">
+        <input type="number" id="rows" placeholder="Broj redaka" min="1" required>
+        <input type="number" id="cols" placeholder="Broj stupaca" min="1" required>
+        <button type="submit">Promijeni dimenzije</button>
+    </form>
+    <select id="pattern-select">
+        <option value="glider">Glider</option>
+        <option value="blinker">Blinker</option>
+        <option value="r-pentomino">R-pentomino</option>
+        <option value="lwss">Lightweight Spaceship</option>
+    </select>
+    <button id="apply-pattern">Primijeni uzorak</button>
+    <div id="grid-container">
+        {{GRID}}
+    </div>
+    <div id="controls">
+        <form method="post" action="/evolve" style="display: inline;">
+            <button type="button" id="next-gen">Sljedeća generacija</button>
+            <button type="button" id="start-button">Start</button>
+            <button type="button" id="stop-button" disabled>Stop</button>
+            <button type="button" id="clear-button">Očisti mrežu</button>
+      </form>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            let running = false; 
+            // funk za dodavanje event listenera na ćelije
+            function addCellListeners() {
+                document.querySelectorAll("td").forEach(function (cell) {
+                    const newCell = cell.cloneNode(true); // stvori novu kopiju ćelije
+                    cell.parentNode.replaceChild(newCell, cell); // zamijeni ćeliju novom
+                    newCell.addEventListener("click", cellClickHandler); // dodaj novi listener
+                });
+            }
+
+            document.getElementById("resize-form").addEventListener("submit", function (e) {
+                e.preventDefault();
+                const rows = document.getElementById("rows").value;
+                const cols = document.getElementById("cols").value;
+                fetch(`/resize-grid?rows=${rows}&cols=${cols}`, { method: "POST" })
+                    .then((response) => response.text())
+                    .then((data) => {
+                        const gridContainer = document.getElementById("grid-container");
+                        gridContainer.innerHTML = ""; // očisti trenutni sadržaj
+                        gridContainer.innerHTML = data; // dodaj novu mrežu
+                        addCellListeners(); // dodaj event listenere
+                    });
+            });
+
+            //  rukovanje klikovima na ćelije
+            function cellClickHandler() {
+                const row = this.dataset.row;
+                const col = this.dataset.col;
+
+                fetch("/toggle-cell", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: `row=${row}&col=${col}`,
+                }).then((response) => {
+                    if (response.ok) updateGrid(); // osvježi mrežu nakon klika
+                });
+            }
+
+            document.getElementById("apply-pattern").addEventListener("click", function () {
+                const pattern = document.getElementById("pattern-select").value;
+
+                fetch(`/add-centered-${pattern}`, { method: "POST" })
+                    .then(response => response.text())
+                    .then(data => {
+                        const gridContainer = document.getElementById("grid-container");
+                        gridContainer.innerHTML = data; 
+                    });
+            });
+
+            // ažuriranje mreže
+            async function updateGrid() {
+                const response = await fetch("/grid"); // dohvati samo mrežu
+                const data = await response.text();
+                document.getElementById("grid-container").innerHTML = data; 
+                addCellListeners(); // ponovno dodaj event listenere
+            }
+
+            // sljedeći korak / genracija korisnik ručno vrti igricu
+            document.getElementById("next-gen").addEventListener("click", function(){
+                fetch("/evolve", {method: "POST"})
+                    .then((response) => response.text())
+                    .then((data)=> {
+                        if(data === "END"){
+                            alert("Igra je gotova!");
+                        }else{
+                            document.getElementById("grid-container").innerHTML = data;
+                            addCellListeners();
+                        }
+                    });
+            });
+
+            function evolveGrid() {
+                if (!running) return; // Ako nije pokrenuto, odmah prekini
+
+                fetch("/evolve", { method: "POST" })
+                    .then((response) => response.text())
+                    .then((data) => {
+                        if (data === "END") { // provjera signala za kraj igre
+                            running = false; // prekini petlju
+                            alert("Igra je gotova!");
+                            document.getElementById("start-button").disabled = false;
+                            document.getElementById("stop-button").disabled = true;
+                        } else {
+                            const gridContainer = document.getElementById("grid-container");
+                            gridContainer.innerHTML = data;
+                            addCellListeners();
+
+                            if (running) {
+                                setTimeout(evolveGrid, 150);
+                            }
+                        }
+                    });
+            }
+
+            // kontrola gumba
+            document.getElementById("start-button").addEventListener("click", function () {
+                running = true;
+                document.getElementById("start-button").disabled = true;
+                document.getElementById("stop-button").disabled = false;
+                evolveGrid();
+            });
+
+            document.getElementById("stop-button").addEventListener("click", function () {
+                running = false;
+                document.getElementById("start-button").disabled = false;
+                document.getElementById("stop-button").disabled = true;
+            });
+
+            document.getElementById("clear-button").addEventListener("click", function () {
+                running = false; // osiguraj zaustavljanje evolucije
+                fetch("/clear-grid", { method: "POST" })
+                    .then((response) => response.text())
+                    .then((data) => {
+                        document.getElementById("grid-container").innerHTML = data;
+                        addCellListeners();
+                        document.getElementById("start-button").disabled = false;
+                        document.getElementById("stop-button").disabled = true;
+                    });
+            });
+
+            addCellListeners();
+        });
+    </script>
+</body>
+</html>
